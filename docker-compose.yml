@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: yarn dev
+    depends_on:
+      - db
+
+  db:
+    image: ankane/pgvector
+    container_name: pgvector-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: mydb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d
+
+volumes:
+  pg_data:
