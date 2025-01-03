@@ -5,4 +5,5 @@ CREATE TABLE IF NOT EXISTS embeddings (
   file_id TEXT NOT NULL,
   content TEXT NOT NULL,
   vector VECTOR(1536) NOT NULL
+  metadata JSONB NOT NULL
 );

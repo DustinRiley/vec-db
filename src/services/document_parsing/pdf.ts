@@ -1,8 +1,10 @@
 import { PDFNet } from "@pdftron/pdfnet-node";
 import { chuckText } from "./utils";
 
-// Extract text from the PDF using PDFTron
-async function extractTextFromPDF(pdfBuffer: Buffer): Promise<string[]> {
+// Extract text from the PDF using the API FKA PDFTron
+// Does not extract anything else, just the text
+// may wanna do ocr before this
+async function convertPDFTextToChunks(pdfBuffer: Buffer): Promise<string[]> {
   return await PDFNet.runWithCleanup(async () => {
     const doc = await PDFNet.PDFDoc.createFromBuffer(pdfBuffer);
     doc.initSecurityHandler();
@@ -23,4 +25,4 @@ async function extractTextFromPDF(pdfBuffer: Buffer): Promise<string[]> {
 
 }
 
-export { extractTextFromPDF };
+export { convertPDFTextToChunks as extractTextFromPDF };

@@ -4,6 +4,7 @@ import {  storeFileEmbedding } from "../services/database";
 import { checkAuth } from "../services/checkAuth";
 import { generateEmbedding } from "../services/embeddings";
 import { extractTextFromPDF } from "../services/document_parsing/pdf";
+import { MAX_CHUNKS } from "../constants";
 
 export const uploadRouter = Router();
 
@@ -20,11 +21,17 @@ uploadRouter.post("/", singleFileUpload, async (req, res) => {
     }
 
     const chunks = await extractTextFromPDF(req.file.buffer);
+    if(chunks.length === 0 || chunks.length > MAX_CHUNKS) {
+      return res.status(400).json({ error: "Could not extract text from file!!" });
+    }
+
     for (const text of chunks) {
       console.log("Chunk:", text);
       if (!text) {
         return res.status(400).json({ error: "Could not extract text from file!!" });
       }
+      
+      // todo do better file id generation
       const fileId = req.file.originalname + "-" + Math.random().toString(36).substring(7); 
 
 

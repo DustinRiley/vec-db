@@ -42,7 +42,7 @@ This project is a containerized Node.js application that:
    ```
 3. Run with Docker Compose:
    ```bash
-   docker-compose up --build
+   yarn docker:up
    ```
 
 ## API Endpoints
@@ -53,16 +53,34 @@ This project is a containerized Node.js application that:
 - **Headers**: `Authorization: Bearer <token>`
 - **Body**: Form-data with `file`.
 
+
+```bash
+  curl --location 'http://localhost:8000/upload' \
+  --form 'file=@"<path_to_your_file>"'
+```
+
+
 ### Search by Vector
 **POST** `/search`
 - Finds similar embeddings.
 - **Body**:
   ```json
   {
-    "vector": [0.1, 0.2, 0.3],
-    "threshold": 0.5
+      "text": "query text",
+      "threshold": 0.8,
+      "limit": 1
   }
   ```
+
+```bash
+  curl --location 'http://localhost:8000/search' \
+  --header 'Content-Type: application/json' \
+  --data '{
+      "text": "test",
+      "threshold": 0.8,
+      "limit": 1
+  }'
+```
 
 ### Delete Embeddings
 **DELETE** `/embeddings/:fileId`
@@ -79,9 +97,9 @@ CREATE TABLE IF NOT EXISTS embeddings (
   file_id TEXT NOT NULL,
   content TEXT NOT NULL,
   vector VECTOR(1536) NOT NULL
+  metadata JSONB NOT NULL
 );
 ```
 
 
-MIT License
 
