@@ -1,10 +1,9 @@
 import { Router } from "express";
 import multer from "multer";
-import { storeFileEmbedding, updateFileEmbedding } from "../services/database";
 import { checkAuth } from "../services/checkAuth";
-import { generateEmbedding } from "../services/embeddings";
 import { extractTextFromPDF } from "../services/document_parsing/pdf";
 import { MAX_CHUNKS } from "../constants";
+import { batchStoreFileEmbeddings, createEmbeddings } from "../services/database";
 
 export const updateRouter = Router();
 
@@ -53,17 +52,11 @@ updateRouter.post("/", singleFileUpload, async (req, res) => {
       return res.status(400).json({ error: "Could not extract text from file!!" });
     }
 
+    const embeddings = await createEmbeddings({texts: chunks});
+    await batchStoreFileEmbeddings(embeddings);
 
-    for (const text of chunks) {
-      console.log("Chunk:", text);
-      if (!text) {
-        return res.status(400).json({ error: "Could not extract text from file!!" });
-      }
 
-      const embedding = await generateEmbedding(text);
-
-      await updateFileEmbedding({ fileId, content: text, vector: embedding, id });
-    }
+    
     return res.status(200).json({ message: "File uploaded successfully" });
   } catch (err: any) {
     console.error(err);

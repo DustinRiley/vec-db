@@ -1,5 +1,5 @@
 import { Pinecone, RecordMetadata, ScoredPineconeRecord } from "@pinecone-database/pinecone";
-
+const namespace = "default";
 /**
  * Embedding interface describing the expected structure
  * of objects stored and retrieved from Pinecone.
@@ -8,9 +8,16 @@ export interface Embedding {
   id: string;
   file_id: string;
   content: string;
-  vector: number[];
+  values: number[];
   metadata: Record<string, any>;
 }
+
+const getRandomString = (length = 7): string => {
+  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  return Array.from({ length }, () =>
+    characters.charAt(Math.floor(Math.random() * characters.length))
+  ).join("");
+};
 
 // ===== Pinecone Initialization =====
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY || "your-api-key";
@@ -20,28 +27,26 @@ const pinecone = new Pinecone({
   apiKey: PINECONE_API_KEY,
 });
 
-
 const index = pinecone.index(PINECONE_INDEX_NAME);
 
-// ===== Query by Vector =====
+// ===== Query by values =====
 
 /**
- * Queries Pinecone for the closest matching vectors.
+ * Queries Pinecone for the closest matching valuess.
  *
- * @param vector - The numeric embedding to query against.
+ * @param values - The numeric embedding to query against.
  * @param topK - Maximum number of results to return.
  * @param namespace - (Optional) Pinecone namespace to query within.
  * @returns An array of matching embeddings.
  */
-export const searchByVector = async (
-  vector: number[],
-  topK = 10,
-  namespace: string
+export const searchByvalues = async (
+  values: number[],
+  topK = 10
 ): Promise<ScoredPineconeRecord<RecordMetadata>[]> => {
   try {
     const response = await index.namespace(namespace).query({
       topK,
-      vector,
+      vector: values,
       includeMetadata: true,
     });
 
@@ -51,31 +56,28 @@ export const searchByVector = async (
       id: match.id,
       file_id: match.metadata?.file_id,
       content: match.metadata?.content,
-      vector: match.values,
+      values: match.values,
       metadata: match.metadata,
     }));
   } catch (error) {
-    console.error("Error querying by vector:", error);
+    console.error("Error querying by values:", error);
     throw error;
   }
 };
 
 // ===== Create Embeddings =====
-export const createEmbeddings = async (
-  {
-    model = "multilingual-e5-large",
-    texts = [],
-  }: {
-    model?: string;
-    texts: string[];
-  }
-): Promise<any> => {
+export const createEmbeddings = async ({
+  model = "multilingual-e5-large",
+  texts = [],
+}: {
+  model?: string;
+  texts: string[];
+}): Promise<any> => {
   try {
-    const embeddings = await pinecone.inference.embed(
-      model,
-      texts,
-      { inputType: "text", truncate: "END" }
-    );
+    const embeddings = await pinecone.inference.embed(model, texts, {
+      inputType: "text",
+      truncate: "NONE",
+    });
     return embeddings;
   } catch (error) {
     console.error("Error creating embeddings:", error);
@@ -91,10 +93,7 @@ export const createEmbeddings = async (
  * @param fileId - The file ID whose embeddings should be deleted.
  * @param namespace - (Optional) Pinecone namespace to delete from.
  */
-export const deleteAllFileEmbeddings = async (
-  fileId: string,
-  namespace: string
-): Promise<void> => {
+export const deleteAllFileEmbeddings = async (fileId: string): Promise<void> => {
   try {
     await index.namespace(namespace).deleteMany({
       filter: { file_id: fileId },
@@ -112,10 +111,7 @@ export const deleteAllFileEmbeddings = async (
  * @param id - The ID of the embedding to delete.
  * @param namespace - (Optional) Pinecone namespace to delete from.
  */
-export const deleteIdEmbedding = async (
-  id: string,
-  namespace: string
-): Promise<void> => {
+export const deleteIdEmbedding = async (id: string): Promise<void> => {
   try {
     await index.namespace(namespace).deleteOne(id);
     console.log(`Deleted embedding with id: ${id}`);
@@ -132,26 +128,23 @@ export const deleteIdEmbedding = async (
  *
  * @param params - Object containing embedding parameters.
  */
-export const storeFileEmbedding = async ({
-  id,
-  fileId,
+export const storeSingleFileEmbedding = async ({
+  filename,
   content,
-  vector,
+  values,
   metadata = {},
-  namespace,
 }: {
-  id: string;
-  fileId: string;
+  filename: string;
   content: string;
-  vector: number[];
+  values: number[];
   metadata?: Record<string, any>;
-  namespace: string;
 }): Promise<void> => {
   try {
+    const fileId = `${filename}-${getRandomString()}`;
     await index.namespace(namespace).upsert([
       {
-        id,
-        values: vector,
+        id: fileId,
+        values: values,
         metadata: {
           file_id: fileId,
           content,
@@ -161,7 +154,35 @@ export const storeFileEmbedding = async ({
     ]);
     console.log(`Stored embedding for file_id: ${fileId}`);
   } catch (error) {
-    console.error(`Error storing embedding for file_id ${fileId}:`, error);
+    console.error(`Error storing embedding for file_id ${filename}:`, error);
+    throw error;
+  }
+};
+
+// ===== Batch Upsert Embeddings =====
+
+/**
+ * Stores (upserts) multiple embeddings associated with particular file_ids.
+ *
+ * @param embeddings - An array of embeddings to store.
+ */
+export const batchStoreFileEmbeddings = async (embeddings: Embedding[]): Promise<void> => {
+  try {
+    // Delete all embeddings associated with the first file_id in the batch
+    await deleteAllFileEmbeddings(embeddings[0].file_id);
+    const records = embeddings.map(({ id, file_id, content, values, metadata }) => ({
+      id,
+      values: values,
+      metadata: {
+        file_id,
+        content,
+        ...metadata,
+      },
+    }));
+    await index.namespace(namespace).upsert(records);
+    console.log(`Stored ${embeddings.length} embeddings`);
+  } catch (error) {
+    console.error("Error storing embeddings:", error);
     throw error;
   }
 };
@@ -176,15 +197,13 @@ export const storeFileEmbedding = async ({
  * @returns An array of matching embeddings.
  */
 export const searchByFileId = async (
-  fileId: string,
-  namespace: string
+  fileId: string
 ): Promise<ScoredPineconeRecord<RecordMetadata>[]> => {
   try {
-    // Define a default query vector; ensure it matches the dimensionality of your index
-    const defaultQueryVector = new Array(1024).fill(0); // Replace 1024 with your index's dimension
+    const defaultQueryvalues = new Array(1024).fill(0); // todo: Replace 1024 with our index's dimension
 
     const response = await index.namespace(namespace).query({
-      vector: defaultQueryVector,
+      vector: defaultQueryvalues,
       filter: { file_id: fileId },
       topK: 10,
       includeMetadata: true,
@@ -196,7 +215,7 @@ export const searchByFileId = async (
       id: match.id,
       file_id: match.metadata?.file_id,
       content: match.metadata?.content,
-      vector: match.values, // Adjusted to match the correct property
+      values: match.values, // Adjusted to match the correct property
       metadata: match.metadata,
     }));
   } catch (error) {
@@ -204,4 +223,3 @@ export const searchByFileId = async (
     throw error;
   }
 };
-

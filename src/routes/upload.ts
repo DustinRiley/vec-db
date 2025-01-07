@@ -1,8 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
-import { storeFileEmbedding } from "../services/database";
+import { batchStoreFileEmbeddings, createEmbeddings, Embedding } from "../services/database";
 import { checkAuth } from "../services/checkAuth";
-import { generateEmbedding } from "../services/embeddings";
 import { extractTextFromPDF } from "../services/document_parsing/pdf";
 import { MAX_CHUNKS } from "../constants";
 
@@ -13,6 +12,8 @@ const upload = multer({ storage });
 const singleFileUpload = upload.single("file");
 
 uploadRouter.use(checkAuth);
+
+
 
 uploadRouter.post("/", singleFileUpload, async (req, res) => {
   try {
@@ -27,17 +28,19 @@ uploadRouter.post("/", singleFileUpload, async (req, res) => {
 
     // todo do better file id generation
     const fileId = req.file.originalname + "-" + Math.random().toString(36).substring(7);
+    const embeddings = await createEmbeddings({texts: chunks});
 
-    for (const text of chunks) {
-      console.log("Chunk:", text);
-      if (!text) {
-        return res.status(400).json({ error: "Could not extract text from file!!" });
-      }
+    const embeddingsWithMetadata: Embedding[] = embeddings.map((embedding: Embedding, index: number) => ({
+      ...embedding,
+      metadata: {
+        ...embedding.metadata,
+        file_id: fileId,
+        chunk_index: index,
+      },
+      id: `${fileId}-${index}`,
+    }));
+    await batchStoreFileEmbeddings(embeddingsWithMetadata);
 
-      const embedding = await generateEmbedding(text);
-
-      await storeFileEmbedding({ fileId, content: text, vector: embedding });
-    }
     return res.status(200).json({ message: "File uploaded successfully" });
   } catch (err: any) {
     console.error(err);
