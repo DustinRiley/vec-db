@@ -1,48 +1,46 @@
 import { Router, Request, Response } from "express";
-import { generateEmbedding } from "../services/embeddings";
-import { Embedding, searchByVector } from "../services/database";
 import { checkAuth } from "../services/checkAuth";
+import { createEmbeddings, searchByvalues } from "../services/database";
 
-interface SearchRequestBody {
-  text: string;
-  threshold?: number;
-  limit?: number;
-}
+const router = Router();
+router.use(checkAuth);
 
-interface SearchResult {
-  id: number;
-  file_id: string;
-  content: string;
-  vector: number[];
-  metadata: Record<string, any>;  
-}
-
-export const searchRouter = Router();
-searchRouter.use(checkAuth);
-
-searchRouter.post("/", async (req: Request<{}, {}, SearchRequestBody>, res: Response) => {
+// =============== POST /search (Query the Vector DB) ===============
+// Could also use GET /search with query params, but a POST is often more convenient for passing JSON text.
+router.post("/", async (req: Request, res: Response) => {
   try {
-    const { text, threshold = 0.8, limit = 5 } = req.body;
+    const { queryText, topK = 10 } = req.body;
+    if (!queryText) {
+      return res.status(400).json({ error: "Missing queryText in body" });
+    }
 
-    const embedding = await generateEmbedding(text);
+    //  Embed the user query text
+    const [queryEmbedding] = await createEmbeddings({ texts: [queryText] });
 
-    const results = await searchByVector(embedding, threshold);
+    if (!queryEmbedding?.values) {
+      return res.status(500).json({
+        error: "Failed to generate query embedding",
+      });
+    }
 
-    const responseResults: Partial<Embedding>[] = results
-      .map((result) => ({
-        id: result.id,
-        file_id: result.file_id,
-        content: result.content,
-        metadata: result.metadata,
-      }))
-      .slice(0, limit);
+    //  Search the vector DB
+    const results = await searchByvalues(queryEmbedding.values, topK);
 
-    return res.json({
-      message: "Search successful",
-      results: responseResults,
+    //  Return the matches
+    return res.status(200).json({
+      query: queryText,
+      results: results.map((match) => ({
+        id: match.id,
+        score: match.score,
+        file_id: match.metadata?.file_id,
+        content: match.metadata?.content,
+        metadata: match.metadata,
+      })),
     });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Search failed" });
+  } catch (error: any) {
+    console.error("Error in POST /search:", error);
+    return res.status(500).json({ error: error.message || "Server error" });
   }
 });
+
+export default router;
