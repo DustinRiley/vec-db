@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { batchStoreFileEmbeddings, createEmbeddings, Embedding } from "../services/database";
+import { batchStoreFileEmbeddings, createEmbeddings, PineconeRecord } from "../services/database";
 import { checkAuth } from "../services/checkAuth";
 import { extractTextFromPDF } from "../services/document_parsing/pdf";
 import { MAX_CHUNKS } from "../constants";
@@ -30,15 +30,17 @@ uploadRouter.post("/", singleFileUpload, async (req, res) => {
     const fileId = req.file.originalname + "-" + Math.random().toString(36).substring(7);
     const embeddings = await createEmbeddings({texts: chunks});
 
-    const embeddingsWithMetadata: Embedding[] = embeddings.map((embedding: Embedding, index: number) => ({
+    const embeddingsWithMetadata: PineconeRecord[] = embeddings.map((embedding, index) => ({
       ...embedding,
-      metadata: {
-        ...embedding.metadata,
         file_id: fileId,
         chunk_index: index,
-      },
       id: `${fileId}-${index}`,
-    }));
+      content: chunks[index],
+      metadata: {
+        file_id: fileId,
+        chunk_index: index,
+    }}));
+    
     await batchStoreFileEmbeddings(embeddingsWithMetadata);
 
     return res.status(200).json({ message: "File uploaded successfully" });

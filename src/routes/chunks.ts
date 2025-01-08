@@ -2,9 +2,11 @@ import { Router, Request, Response } from "express";
 import multer from "multer";
 import { checkAuth } from "../services/checkAuth";
 import { extractTextFromPDF } from "../services/document_parsing/pdf";
-import { createEmbeddings, batchStoreFileEmbeddings, Embedding } from "../services/database";
+import { createEmbeddings, batchStoreFileEmbeddings, PineconeRecord } from "../services/database";
 import { deleteIdEmbedding } from "../services/database";
 import { MAX_CHUNKS } from "../constants";
+import { EmbeddingsList } from "@pinecone-database/pinecone";
+import { Embedding } from "@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/inference";
 
 const router = Router();
 router.use(checkAuth);
@@ -54,7 +56,7 @@ router.put("/:id", upload.single("file"), async (req: Request, res: Response) =>
       console.warn("Warning: No explicit fileId provided for chunk update.");
     }
 
-    const embeddingRecords: Embedding[] = embeddings.map((emb: Embedding, idx: number) => {
+    const embeddingRecords: PineconeRecord[] = embeddings.map((emb: Embedding, idx: number) => {
       const chunkId = idx === 0 ? id : `${id}-split-${idx}`;
       return {
         ...emb,

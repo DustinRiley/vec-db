@@ -1,16 +1,23 @@
-import { Pinecone, RecordMetadata, ScoredPineconeRecord } from "@pinecone-database/pinecone";
+import { EmbeddingsList, Pinecone, RecordMetadata, ScoredPineconeRecord } from "@pinecone-database/pinecone";
 const namespace = "default";
 /**
  * Embedding interface describing the expected structure
  * of objects stored and retrieved from Pinecone.
  */
-export interface Embedding {
+export interface PineconeRecord {
   id: string;
   file_id: string;
   content: string;
-  values: number[];
+  values?: number[];
   metadata: Record<string, any>;
 }
+const validateValues = (values: number[], dimension: number): boolean => {
+  return (
+    Array.isArray(values) &&
+    values.every((val) => typeof val === "number") &&
+    values.length === dimension
+  );
+};
 
 const getRandomString = (length = 7): string => {
   const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -20,8 +27,11 @@ const getRandomString = (length = 7): string => {
 };
 
 // ===== Pinecone Initialization =====
-const PINECONE_API_KEY = process.env.PINECONE_API_KEY || "your-api-key";
-const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME || "your-index-name";
+const PINECONE_API_KEY = process.env.PINECONE_API_KEY as string;
+const PINECONE_INDEX_NAME = process.env.PINECONE_INDEX_NAME as string;
+
+console.log("PINECONE_API_KEY", PINECONE_API_KEY);
+console.log("PINECONE_INDEX_NAME", PINECONE_INDEX_NAME);
 
 const pinecone = new Pinecone({
   apiKey: PINECONE_API_KEY,
@@ -72,11 +82,15 @@ export const createEmbeddings = async ({
 }: {
   model?: string;
   texts: string[];
-}): Promise<any> => {
+}): Promise<EmbeddingsList> => {
   try {
     const embeddings = await pinecone.inference.embed(model, texts, {
-      inputType: "text",
-      truncate: "NONE",
+      // Dynamically set inputType based on the length of the input
+      inputType: texts.some((text) => text.length > 100) ? "passage" : "query",
+      truncate: "END", // TODO: Change to "END" for production
+      // this is a temporary workaround to avoid the truncation of the input text
+      // the issue this causes is that it will greedily truncate the input text
+      // we will lose the truncation of the input text
     });
     return embeddings;
   } catch (error) {
@@ -139,6 +153,11 @@ export const storeSingleFileEmbedding = async ({
   values: number[];
   metadata?: Record<string, any>;
 }): Promise<void> => {
+  const dimension = 1024; // Replace with your index's actual dimension
+  if (!validateValues(values, dimension)) {
+    throw new Error(`Invalid vector values: Ensure an array of ${dimension} numbers.`);
+  }
+
   try {
     const fileId = `${filename}-${getRandomString()}`;
     await index.namespace(namespace).upsert([
@@ -166,26 +185,28 @@ export const storeSingleFileEmbedding = async ({
  *
  * @param embeddings - An array of embeddings to store.
  */
-export const batchStoreFileEmbeddings = async (embeddings: Embedding[]): Promise<void> => {
+export const batchStoreFileEmbeddings = async (embeddings: PineconeRecord[]): Promise<void> => {
   try {
-    // Delete all embeddings associated with the first file_id in the batch
-    await deleteAllFileEmbeddings(embeddings[0].file_id);
     const records = embeddings.map(({ id, file_id, content, values, metadata }) => ({
       id,
-      values: values,
-      metadata: {
-        file_id,
-        content,
-        ...metadata,
-      },
+      values: values ?? Array(1024).fill(0), 
+      metadata: Object.fromEntries(
+        Object.entries({
+          file_id,
+          content,
+          ...metadata,
+        }).filter(([_, value]) => value !== null) // Remove null values
+      ),
     }));
+
     await index.namespace(namespace).upsert(records);
-    console.log(`Stored ${embeddings.length} embeddings`);
+    console.log(`Stored ${embeddings.length} embeddings successfully.`);
   } catch (error) {
     console.error("Error storing embeddings:", error);
     throw error;
   }
 };
+
 
 // ===== Query by File ID =====
 
@@ -215,7 +236,7 @@ export const searchByFileId = async (
       id: match.id,
       file_id: match.metadata?.file_id,
       content: match.metadata?.content,
-      values: match.values, // Adjusted to match the correct property
+      values: match.values, 
       metadata: match.metadata,
     }));
   } catch (error) {
